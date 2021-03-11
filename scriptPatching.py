@@ -19,17 +19,36 @@ class Ui_Dialog():
         # self.changeDir = inputDir.split(fileName)[0]
         self.fileModList = []
         self.timeDate = datetime.now().strftime("%Y%m%d_%H%M%S_")
+        self.User = "lowaccess"
+        self.AccessKey = "AKIAYCTPYTZAGOETVGNK"
+        self.SecretKey = "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"
+        self.BucketName = "moldhole"
     def writeLogFile(self):
         if(not os.path.isdir(self.backupDir)):
             os.makedirs(self.backupDir)
         modName = self.outputModDir.split("\\")[-1]
         modDate = datetime.now().strftime("%Y,%m,%d %H:%M:%S")
         logFile = open(self.backupDir+"\\"+self.timeDate+"log.txt", 'w')
-        logFile.write("Modded with : " +modName+" on "+modDate)
+        logFile.write("Modded with : " +modName+" on "+modDate+"\n")
         for file in self.fileModList:
             logFile.write(file+"\n")
         logFile.close()
-
+    def checkForConflict(self):
+        self.logText.append("Checking for compatibilities ...")
+        for root, dirs, files in os.walk(self.outputDir):
+            for fileName in files:
+                if("_log.txt" in fileName):
+                    #print("fileName : ",os.path.join(root, fileName))
+                    with open(os.path.join(root, fileName),"r") as logFile:
+                        data = logFile.readlines()
+                        logFile.close()
+        for line in self.fileModList:
+            #print("line : ",line)
+            for item in data:
+                #print("item : ",item)
+                if(line in item):
+                    return False
+        return True
     def extractISOFile(self,isoDir):
         #," && wit", "extract "+inputDir, " --dest " +outputDir
         proc = os.popen("wit extract \""+ isoDir + "\" --dest "+ self.outputDir)
@@ -40,7 +59,7 @@ class Ui_Dialog():
         self.fileName = self.inputBase.toPlainText().replace("/","\\").split("\\")[-1].replace(" ","")
 
         moddedFileName = self.timeDate+"Modded_"+self.fileName
-        proc = os.popen("wit copy " + self.outputDir + " --dest " +  moddedFileName)
+        proc = os.popen("wit copy \"" + self.outputDir + "\" --dest " +  moddedFileName)
         output = proc.read()
         self.logText.append(output)
 
@@ -81,7 +100,7 @@ class Ui_Dialog():
         self.writeLogFile()
         if(os.path.isdir(self.outputDir+"\\DATA")): 
             self.outputDir = self.outputDir+"\\DATA"
-            print("self.outputDir ", self.outputDir)
+            #print("self.outputDir ", self.outputDir)
         for file in self.fileModList:
             fileToBackup =self.outputDir + file.split(self.outputModDir)[1]
             #print("fileToBackup: ",fileToBackup)
@@ -91,7 +110,7 @@ class Ui_Dialog():
                 # print("desDir: ",desDir)
                 if(not os.path.isdir(desDir)):
                     os.makedirs(desDir)
-                os.popen("copy " + fileToBackup +" "+desDir )
+                os.popen("copy \"" + fileToBackup +"\" "+desDir )
             except:
                 continue
         time.sleep(1)
@@ -124,7 +143,7 @@ class Ui_Dialog():
         time.sleep(2)
         self.extractFile(tempFile,"")
         #Copy to all backup to game folder
-        os.popen('Xcopy /E /H /I '+ 'backup '+self.outputDir + " /Y")
+        os.popen("Xcopy /E /H /I "+ "backup \""+self.outputDir + "\" /Y")
         self.logText.append("Reverting Done!")
         time.sleep(1)
         #Delete backup folder
@@ -145,9 +164,10 @@ class Ui_Dialog():
         #/I – Avoids prompting if the destination is a folder or file.
         self.logText.append("Installing new mod...")
         time.sleep(1)
-        os.popen("Xcopy /E /H /I " + self.outputModDir +" "+self.outputDir +" /Y")
+        os.popen("Xcopy /E /H /I \"" + self.outputModDir +"\" \""+self.outputDir +"\" /Y")
         self.logText.append("Done!")
-
+    def cleanUpTempFolder(self):
+        pass
     def setupUi(self, Dialog):
         #Setup main Dialog
         Dialog.setObjectName("Dialog")
@@ -217,20 +237,39 @@ class Ui_Dialog():
         self.progressText.setObjectName("progressText")
 
         self.updateBtn = QtWidgets.QPushButton(Dialog)
-        self.updateBtn.setGeometry(QtCore.QRect(440, 180, 101, 91))
+        self.updateBtn.setGeometry(QtCore.QRect(440, 120, 101, 91))
         font = QtGui.QFont()
         font.setPointSize(12)
         font.setBold(True)
         font.setWeight(75)
         self.updateBtn.setFont(font)
         self.updateBtn.setObjectName("updateBtn")
-        self.updateBtn.clicked.connect(self.mainAction)
+        self.updateBtn.clicked.connect(self.patchAction)
+
+        self.revertBtn = QtWidgets.QPushButton(Dialog)
+        self.revertBtn.setGeometry(QtCore.QRect(440, 230, 101, 91))
+        font = QtGui.QFont()
+        font.setPointSize(12)
+        font.setBold(True)
+        font.setWeight(75)
+        self.revertBtn.setFont(font)
+        self.revertBtn.setObjectName("revertBtn")
+        self.revertBtn.clicked.connect(self.revertAction)
 
         self.progressBar = QtWidgets.QProgressBar(self.showBox)
         self.progressBar.setGeometry(QtCore.QRect(10, 190, 405, 23))
         self.progressBar.setProperty("value", 0)
         self.progressBar.setObjectName("progressBar")
-
+        #Popup message for Done
+        self.msgInfor = QtWidgets.QMessageBox()
+        self.msgInfor.setIcon(QtWidgets.QMessageBox.Information)
+        self.msgInfor.setText("Done!")
+        self.msgInfor.setWindowTitle("Result")
+        #Popup message for Warning
+        self.msgWarn = QtWidgets.QMessageBox()
+        self.msgWarn.setIcon(QtWidgets.QMessageBox.Warning)
+        self.msgWarn.setText("Warning!This mod will overwrite old mods!")
+        self.msgWarn.setWindowTitle("Result")
         self.retranslateUi(Dialog)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
 
@@ -248,6 +287,7 @@ class Ui_Dialog():
 "<p style=\"-qt-paragraph-type:empty; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><br /></p></body></html>"))
         self.progressText.setText(_translate("Dialog", "Progress Log"))
         self.updateBtn.setText(_translate("Dialog", "UPDATE"))
+        self.revertBtn.setText(_translate("Dialog", "REVERT"))
     #Method for browsing the Base Directory
     def browserBase(self):
         data_path =QtWidgets.QFileDialog.getOpenFileName(None, 'Select ISO file...', os.getcwd())[0]
@@ -268,8 +308,13 @@ class Ui_Dialog():
                 pass
         else:
             self.logText.setText("Wrong File Format")
+    def revertAction(self):
+        #self.logText.append("Reverting Base Game back to original...")
+        #self.revertToBaseVersion()
+        self.progressBar.setValue(100)
 
-    def mainAction(self):
+    def patchAction(self):
+        #Extract Iso File
         self.extractISOFile(self.inputBase.toPlainText().replace("/","\\"))
         self.progressBar.setValue(10)
         #Extract Mod File
@@ -279,20 +324,22 @@ class Ui_Dialog():
 
         self.listAllModFiles()
         self.progressBar.setValue(30)
-        self.logText.append("Backing up base game file changes ...")
-        self.copyBackUpFiles()
-        self.progressBar.setValue(40)
+        if(self.checkForConflict()):
+            self.progressBar.setValue(40)
+            self.logText.append("Backing up base game file changes ...")
+            self.copyBackUpFiles()
+            self.progressBar.setValue(50)
 
-        self.logText.append("Reverting Base Game back to original...")
-        self.revertToBaseVersion()
-        self.progressBar.setValue(60)
+            self.installMod()
+            self.progressBar.setValue(80)
 
-        self.installMod()
-        self.progressBar.setValue(80)
-
-        # #Convert back to .iso
-        self.zipISOFile()
-        self.progressBar.setValue(100)
+            #Convert back to .iso
+            self.zipISOFile()
+            self.progressBar.setValue(100)
+            self.msgInfor.exec_()
+        else:
+            self.logText.append("")
+            self.msgWarn.exec_()
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
