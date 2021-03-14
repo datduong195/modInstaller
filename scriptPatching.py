@@ -1,9 +1,9 @@
-import os,subprocess,time
+import os,subprocess,time,json
 from datetime import datetime
 from zipfile import ZipFile,ZIP_DEFLATED
 from shutil import rmtree
 from PyQt5 import QtCore, QtGui, QtWidgets
-
+import boto3 
 
 
 
@@ -14,15 +14,20 @@ class Ui_Dialog():
         self.outputModDir = "packagerOutput"
         self.backupDir = "backup"
         self.backupZipDir = "backupZIP"
-        # self.inputDir = input("Input directory : ")
         self.fileName = ""
-        # self.changeDir = inputDir.split(fileName)[0]
+        self.downloadFolder = "download"
         self.fileModList = []
         self.timeDate = datetime.now().strftime("%Y%m%d_%H%M%S_")
         self.User = "lowaccess"
         self.AccessKey = "AKIAYCTPYTZAGOETVGNK"
         self.SecretKey = "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"
-        self.BucketName = "moldhole"
+        #initiate s3 resource
+        self.s3Object = boto3.resource('s3',aws_access_key_id=self.AccessKey,aws_secret_access_key=self.SecretKey)
+        # select bucket
+        self.Bucket =self.s3Object.Bucket("moldhole")
+        self.Bucket.objects.filter(Prefix='/')
+        self.availableModList = dict()
+
     def writeLogFile(self):
         if(not os.path.isdir(self.backupDir)):
             os.makedirs(self.backupDir)
@@ -172,7 +177,7 @@ class Ui_Dialog():
         #Setup main Dialog
         Dialog.setObjectName("Dialog")
         Dialog.setEnabled(True)
-        Dialog.setFixedSize(563, 339)
+        Dialog.setFixedSize(555, 372)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -182,7 +187,7 @@ class Ui_Dialog():
         Dialog.setSizeGripEnabled(False)
 
         self.browseBox = QtWidgets.QGroupBox(Dialog)
-        self.browseBox.setGeometry(QtCore.QRect(10, 10, 531, 91))
+        self.browseBox.setGeometry(QtCore.QRect(10, 10, 531, 121))
         self.browseBox.setTitle("")
         self.browseBox.setObjectName("browseBox")
 
@@ -218,8 +223,25 @@ class Ui_Dialog():
         self.inputMod.setGeometry(QtCore.QRect(140, 50, 291, 21))
         self.inputMod.setObjectName("inputMod")
 
+        self.modList = QtWidgets.QComboBox(self.browseBox)
+        self.modList.setGeometry(QtCore.QRect(140, 80, 291, 22))
+        self.modList.setObjectName("modList")
+        self.modList.addItem("Select Mod")
+
+        self.selectText = QtWidgets.QLabel(self.browseBox)
+        self.selectText.setGeometry(QtCore.QRect(10, 80, 111, 21))
+        font = QtGui.QFont()
+        font.setPointSize(14)
+        self.selectText.setFont(font)
+        self.selectText.setObjectName("selectText")
+        
+        self.downloadBtn = QtWidgets.QPushButton(self.browseBox)
+        self.downloadBtn.setGeometry(QtCore.QRect(440, 80, 75, 23))
+        self.downloadBtn.setObjectName("downloadBtn")
+        self.downloadBtn.clicked.connect(self.downloadFileAWS)
+
         self.showBox = QtWidgets.QGroupBox(Dialog)
-        self.showBox.setGeometry(QtCore.QRect(10, 110, 411, 221))
+        self.showBox.setGeometry(QtCore.QRect(10, 140, 411, 221))
         self.showBox.setTitle("")
         self.showBox.setObjectName("showBox")
 
@@ -237,7 +259,7 @@ class Ui_Dialog():
         self.progressText.setObjectName("progressText")
 
         self.updateBtn = QtWidgets.QPushButton(Dialog)
-        self.updateBtn.setGeometry(QtCore.QRect(440, 120, 101, 91))
+        self.updateBtn.setGeometry(QtCore.QRect(440, 150, 101, 91))
         font = QtGui.QFont()
         font.setPointSize(12)
         font.setBold(True)
@@ -247,7 +269,8 @@ class Ui_Dialog():
         self.updateBtn.clicked.connect(self.patchAction)
 
         self.revertBtn = QtWidgets.QPushButton(Dialog)
-        self.revertBtn.setGeometry(QtCore.QRect(440, 230, 101, 91))
+        self.revertBtn.setEnabled(False)
+        self.revertBtn.setGeometry(QtCore.QRect(440, 260, 101, 91))
         font = QtGui.QFont()
         font.setPointSize(12)
         font.setBold(True)
@@ -272,7 +295,7 @@ class Ui_Dialog():
         self.msgWarn.setWindowTitle("Result")
         self.retranslateUi(Dialog)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
-
+        self.checkForUpdate()
     def retranslateUi(self, Dialog):
         _translate = QtCore.QCoreApplication.translate
         Dialog.setWindowTitle(_translate("Dialog", "Dialog"))
@@ -280,6 +303,8 @@ class Ui_Dialog():
         self.baseBtn.setText(_translate("Dialog", "Browse"))
         self.modText.setText(_translate("Dialog", "Mod Zip File"))
         self.modBtn.setText(_translate("Dialog", "Browse"))
+        self.downloadBtn.setText(_translate("Dialog", "Download"))
+        self.selectText.setText(_translate("Dialog", "Select Mod"))
         self.logText.setHtml(_translate("Dialog", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
 "<html><head><meta name=\"qrichtext\" content=\"1\" /><style type=\"text/css\">\n"
 "p, li { white-space: pre-wrap; }\n"
@@ -297,7 +322,7 @@ class Ui_Dialog():
             except:
                 pass
         else:
-            self.logText.setText("Wrong File Format")
+            self.logText.append("Wrong File Format")
     #Method for browsing the Modded Directory
     def browserMod(self):
         data_path =QtWidgets.QFileDialog.getOpenFileName(None, "Select Mod file...",os.getcwd())[0]
@@ -307,18 +332,78 @@ class Ui_Dialog():
             except:
                 pass
         else:
-            self.logText.setText("Wrong File Format")
+            self.logText.append("Wrong File Format")
     def revertAction(self):
         #self.logText.append("Reverting Base Game back to original...")
         #self.revertToBaseVersion()
         self.progressBar.setValue(100)
-
+    def downloadFunction(self,modFile):
+        self.logText.append("Downloading file: "+modFile)
+        #Look for that file in S3 to download
+        for my_bucket_object in self.Bucket.objects.all():
+            path, fileName = os.path.split(my_bucket_object.key)
+            if(fileName == modFile):
+                self.Bucket.download_file(my_bucket_object.key,"download/"+fileName)
+        self.logText.append("Done!")
+    def downloadFileAWS(self):
+        if(not os.path.isdir(self.downloadFolder)):
+            os.makedirs(self.downloadFolder)
+        #Get selected Mod
+        currentModName = self.modList.currentText()
+        
+        if(currentModName != "Select Mod"):
+            #Get list of mod version for seleted mod in AWS 
+            modFileNameList = self.availableModList[currentModName][-1]
+            if(os.path.isfile("download/download_log.txt")):
+                with open("download/download_log.txt","r") as file:
+                    downloadedFiles = json.load(file)
+                    file.close()
+            else:
+                downloadedFiles = dict()
+            with open("download/download_log.txt","w") as file:
+                #Check if Mod Name existed in log.txt, if yes
+                if(currentModName in downloadedFiles.keys()):
+                    #for modFile in modFileNameList:
+                        #Check if new files, download them
+                        # if(modFile not in downloadedFiles[currentModName]):
+                        #     self.downloadFunction(modFile)
+                    if(modFileNameList not in downloadedFiles[currentModName]):
+                        self.downloadFunction(modFileNameList)
+                        #Update log with new downloaded files
+                        downloadedFiles[currentModName].append(modFileNameList)
+                    json.dump(downloadedFiles, file)
+                #Mod name is not yet in log.txt
+                else:
+                    #for modFile in modFileNameList:
+                    #Download all available mods for the first time using this installer
+                    self.downloadFunction(modFileNameList)
+                    #Update log with new downloaded files
+                    if(currentModName not in downloadedFiles.keys()):
+                        downloadedFiles[currentModName] = [modFileNameList]
+                    else:
+                        downloadedFiles[currentModName].append(modFileNameList)
+                    json.dump(downloadedFiles, file)
+    def checkForUpdate(self):
+        print("Loading... Checking for new update ...")
+        self.logText.append("Checking for new update ...")
+        for my_bucket_object in self.Bucket.objects.all():
+            path, fileName = os.path.split(my_bucket_object.key)
+            if(fileName != ""):    
+                if(path not in self.availableModList.keys()):
+                    self.modList.addItem(path)
+                    self.availableModList[path]= [fileName]
+                else:
+                    self.availableModList[path].append(fileName)
+                #self.Bucket.download_file(my_bucket_object.key, filename)
+        print(self.availableModList)
+        self.logText.append("Done!")
+        #
     def patchAction(self):
         #Extract Iso File
         self.extractISOFile(self.inputBase.toPlainText().replace("/","\\"))
         self.progressBar.setValue(10)
         #Extract Mod File
-        self.logText.setText("Extracting file: %s ..."%self.inputMod.toPlainText())
+        self.logText.append("Extracting file: %s ..."%self.inputMod.toPlainText())
         self.extractFile(self.inputMod.toPlainText().replace("/","\\"),"")
         self.progressBar.setValue(20)
 
@@ -346,7 +431,9 @@ if __name__ == "__main__":
     Dialog = QtWidgets.QDialog()
     ui = Ui_Dialog()
     ui.setupUi(Dialog)
+
     Dialog.show()
+    #ui.checkForUpdate()
     sys.exit(app.exec_())
 
  
