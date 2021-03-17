@@ -3,7 +3,7 @@ from datetime import datetime
 from zipfile import ZipFile,ZIP_DEFLATED
 from shutil import rmtree
 from PyQt5 import QtCore, QtGui, QtWidgets
-import boto3 
+import boto3,base64
 
 
 
@@ -18,11 +18,10 @@ class Ui_Dialog():
         self.downloadFolder = "download"
         self.fileModList = []
         self.timeDate = datetime.now().strftime("%Y%m%d_%H%M%S_")
-        self.User = "lowaccess"
-        self.AccessKey = "AKIAYCTPYTZAGOETVGNK"
-        self.SecretKey = "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"
+        self.nullStr = "QUtJQVlDVFBZVFpBTUxYNktUSEE="
+        self.otherNullStr = "akYwamx3eWd4eEZFN1dmRG1TUitSUjVnT0lTQ0F2aHcyMmpNL3RTNw=="
         #initiate s3 resource
-        self.s3Object = boto3.resource('s3',aws_access_key_id=self.AccessKey,aws_secret_access_key=self.SecretKey)
+        self.s3Object = boto3.resource('s3',aws_access_key_id=base64.b64decode(self.nullStr).decode("utf-8"),aws_secret_access_key=base64.b64decode(self.otherNullStr).decode("utf-8"))
         # select bucket
         self.Bucket =self.s3Object.Bucket("moldhole")
         self.Bucket.objects.filter(Prefix='/')
@@ -33,13 +32,16 @@ class Ui_Dialog():
             os.makedirs(self.backupDir)
         modName = self.outputModDir.split("\\")[-1]
         modDate = datetime.now().strftime("%Y,%m,%d %H:%M:%S")
-        logFile = open(self.backupDir+"\\"+self.timeDate+"log.txt", 'w')
+        logName = self.backupDir+"\\"+self.timeDate+"log.txt"
+        logFile = open(logName, 'w')
         logFile.write("Modded with : " +modName+" on "+modDate+"\n")
         for file in self.fileModList:
             logFile.write(file+"\n")
         logFile.close()
+        os.popen("Xcopy /E /H /I "+ logName +" \""+self.outputDir + "\" /Y")
     def checkForConflict(self):
         self.logText.append("Checking for compatibilities ...")
+        conflictFlag = False
         for root, dirs, files in os.walk(self.outputDir):
             for fileName in files:
                 if("_log.txt" in fileName):
@@ -47,12 +49,14 @@ class Ui_Dialog():
                     with open(os.path.join(root, fileName),"r") as logFile:
                         data = logFile.readlines()
                         logFile.close()
-        for line in self.fileModList:
-            #print("line : ",line)
-            for item in data:
-                #print("item : ",item)
-                if(line in item):
-                    return False
+                    conflictFlag = True
+        if(conflictFlag):
+            for line in self.fileModList:
+                #print("line : ",line)
+                for item in data:
+                    #print("item : ",item)
+                    if(line in item):
+                        return False
         return True
     def extractISOFile(self,isoDir):
         #," && wit", "extract "+inputDir, " --dest " +outputDir
@@ -61,7 +65,7 @@ class Ui_Dialog():
         self.logText.append(output)
 
     def zipISOFile(self):
-        self.fileName = self.inputBase.toPlainText().replace("/","\\").split("\\")[-1].replace(" ","")
+        self.fileName = self.inputBase.text().replace("/","\\").split("\\")[-1].replace(" ","")
 
         moddedFileName = self.timeDate+"Modded_"+self.fileName
         proc = os.popen("wit copy \"" + self.outputDir + "\" --dest " +  moddedFileName)
@@ -129,8 +133,6 @@ class Ui_Dialog():
             self.logText.append("Can't find Backup Folder")
             pass
         self.logText.append("Backup Done!")
-    def checkForUpdate(self):
-        pass
 
     def revertToBaseVersion(self):
         #extract latest backup zip file and replace those file from self.backupDir to self.outputDir
@@ -172,7 +174,9 @@ class Ui_Dialog():
         os.popen("Xcopy /E /H /I \"" + self.outputModDir +"\" \""+self.outputDir +"\" /Y")
         self.logText.append("Done!")
     def cleanUpTempFolder(self):
-        pass
+        os.popen("rm -rf "+self.outputDir)
+        os.popen("rm -rf "+self.outputModDir)
+
     def setupUi(self, Dialog):
         #Setup main Dialog
         Dialog.setObjectName("Dialog")
@@ -215,11 +219,11 @@ class Ui_Dialog():
         self.modBtn.setObjectName("modBtn")
         self.modBtn.clicked.connect(self.browserMod)
 
-        self.inputBase = QtWidgets.QTextEdit(self.browseBox)
+        self.inputBase = QtWidgets.QLineEdit(self.browseBox)
         self.inputBase.setGeometry(QtCore.QRect(140, 20, 291, 21))
         self.inputBase.setObjectName("inputBase")
 
-        self.inputMod = QtWidgets.QTextEdit(self.browseBox)
+        self.inputMod = QtWidgets.QLineEdit(self.browseBox)
         self.inputMod.setGeometry(QtCore.QRect(140, 50, 291, 21))
         self.inputMod.setObjectName("inputMod")
 
@@ -337,6 +341,7 @@ class Ui_Dialog():
         #self.logText.append("Reverting Base Game back to original...")
         #self.revertToBaseVersion()
         self.progressBar.setValue(100)
+    #Function to download selected file
     def downloadFunction(self,modFile):
         self.logText.append("Downloading file: "+modFile)
         #Look for that file in S3 to download
@@ -345,6 +350,7 @@ class Ui_Dialog():
             if(fileName == modFile):
                 self.Bucket.download_file(my_bucket_object.key,"download/"+fileName)
         self.logText.append("Done!")
+    #Download function for file in AWS S3 bucket
     def downloadFileAWS(self):
         if(not os.path.isdir(self.downloadFolder)):
             os.makedirs(self.downloadFolder)
@@ -383,6 +389,10 @@ class Ui_Dialog():
                     else:
                         downloadedFiles[currentModName].append(modFileNameList)
                     json.dump(downloadedFiles, file)
+            modDir = os.getcwd() + "\\download\\" +modFileNameList
+            self.inputMod.setText(modDir)
+        #print(modDir)
+    #Check for if new update for each mod
     def checkForUpdate(self):
         print("Loading... Checking for new update ...")
         self.logText.append("Checking for new update ...")
@@ -400,11 +410,11 @@ class Ui_Dialog():
         #
     def patchAction(self):
         #Extract Iso File
-        self.extractISOFile(self.inputBase.toPlainText().replace("/","\\"))
+        self.extractISOFile(self.inputBase.text().replace("/","\\"))
         self.progressBar.setValue(10)
         #Extract Mod File
-        self.logText.append("Extracting file: %s ..."%self.inputMod.toPlainText())
-        self.extractFile(self.inputMod.toPlainText().replace("/","\\"),"")
+        self.logText.append("Extracting file: %s ..."%self.inputMod.text())
+        self.extractFile(self.inputMod.text().replace("/","\\"),"")
         self.progressBar.setValue(20)
 
         self.listAllModFiles()
@@ -421,6 +431,7 @@ class Ui_Dialog():
             #Convert back to .iso
             self.zipISOFile()
             self.progressBar.setValue(100)
+            self.cleanUpTempFolder()
             self.msgInfor.exec_()
         else:
             self.logText.append("")
